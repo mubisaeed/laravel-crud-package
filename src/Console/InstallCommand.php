@@ -4,6 +4,7 @@ namespace Mubeen\LaravelUserCrud\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
+use Symfony\Component\Process\Process;
 
 class InstallCommand extends Command
 {
@@ -62,11 +63,16 @@ class InstallCommand extends Command
                 if (!class_exists(\Laravel\Sanctum\Sanctum::class)) {
                     if ($this->confirm('Laravel Sanctum is not installed. Would you like to install it now?', true)) {
                         $this->info('Installing Laravel Sanctum...');
-                        $this->callSilently('composer', ['require', 'laravel/sanctum']);
-                        $this->callSilently('vendor:publish', [
-                            '--provider' => 'Laravel\Sanctum\SanctumServiceProvider'
-                        ]);
-                        $this->callSilently('migrate');
+                        
+                        if ($this->runComposerCommand(['require', 'laravel/sanctum'])) {
+                            $this->callSilently('vendor:publish', [
+                                '--provider' => 'Laravel\Sanctum\SanctumServiceProvider'
+                            ]);
+                            $this->callSilently('migrate');
+                        } else {
+                            $this->error('Failed to install Laravel Sanctum via Composer.');
+                            $this->info('Please run this command manually: composer require laravel/sanctum');
+                        }
                     }
                 }
                 break;
@@ -75,7 +81,11 @@ class InstallCommand extends Command
                 if (!class_exists(\Laravel\Passport\Passport::class)) {
                     if ($this->confirm('Laravel Passport is not installed. Would you like to install it now?', true)) {
                         $this->info('Installing Laravel Passport...');
-                        $this->callSilently('composer', ['require', 'laravel/passport']);
+                        
+                        if (!$this->runComposerCommand(['require', 'laravel/passport'])) {
+                            $this->error('Failed to install Laravel Passport via Composer.');
+                            $this->info('Please run this command manually: composer require laravel/passport');
+                        }
                     }
                 }
                 break;
@@ -84,15 +94,48 @@ class InstallCommand extends Command
                 if (!class_exists(\Tymon\JWTAuth\JWTAuth::class)) {
                     if ($this->confirm('JWT Auth is not installed. Would you like to install it now?', true)) {
                         $this->info('Installing JWT Auth...');
-                        $this->callSilently('composer', ['require', 'tymon/jwt-auth']);
-                        $this->callSilently('vendor:publish', [
-                            '--provider' => 'Tymon\JWTAuth\Providers\LaravelServiceProvider'
-                        ]);
-                        $this->callSilently('jwt:secret');
+                        
+                        if ($this->runComposerCommand(['require', 'tymon/jwt-auth'])) {
+                            $this->callSilently('vendor:publish', [
+                                '--provider' => 'Tymon\JWTAuth\Providers\LaravelServiceProvider'
+                            ]);
+                            $this->callSilently('jwt:secret');
+                        } else {
+                            $this->error('Failed to install JWT Auth via Composer.');
+                            $this->info('Please run this command manually: composer require tymon/jwt-auth');
+                        }
                     }
                 }
                 break;
         }
+    }
+    
+    /**
+     * Run a composer command.
+     * 
+     * @param array $command
+     * @return bool
+     */
+    private function runComposerCommand(array $command)
+    {
+        // Determine if we should use a global or local composer installation
+        $composerPath = 'composer';
+        
+        // Check if we're on Windows
+        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+            $composerPath = 'composer.bat';
+        }
+        
+        $process = new Process(array_merge([$composerPath], $command));
+        $process->setTimeout(null); // No timeout
+        
+        $this->info('Running: ' . $composerPath . ' ' . implode(' ', $command));
+        
+        $process->run(function ($type, $buffer) {
+            $this->output->write($buffer);
+        });
+        
+        return $process->isSuccessful();
     }
     
     private function createConfig($interfaceType, $authProvider)
@@ -111,6 +154,9 @@ class InstallCommand extends Command
                 : ['api', $authProvider === 'sanctum' ? 'auth:sanctum' : ($authProvider === 'passport' ? 'auth:api' : 'auth:api')],
             'layout' => 'layouts.app',
             'additional_user_fields' => [],
+            'api_pagination_limit' => 15,
+            'token_name' => 'User Management',
+            'token_expiration_days' => 30,
         ];
         
         $content = "<?php\n\nreturn " . var_export($config, true) . ";\n";
